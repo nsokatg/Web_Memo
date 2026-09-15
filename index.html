@@ -8,9 +8,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Font Awesome -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <!-- Google API Client & Identity Services -->
-  <script src="https://apis.google.com/js/api.js"></script>
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <!-- Google Identity Services (async/deferを外し確実に読み込み) -->
+  <script src="https://accounts.google.com/gsi/client"></script>
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -57,7 +56,7 @@
     </div>
   </header>
 
-  <!-- Google Client ID 設定エリア (初回のみ設定) -->
+  <!-- Google Client ID 設定エリア -->
   <div id="clientIdBanner" class="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 p-4">
     <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-amber-800 dark:text-amber-200">
       <div class="flex items-center gap-2">
@@ -110,8 +109,6 @@
 
       <!-- 一覧 & 検索 -->
       <section class="lg:col-span-7 space-y-4">
-        
-        <!-- 検索バー -->
         <div class="bg-white dark:bg-slate-800 rounded-xl shadow-md p-4 border border-slate-200 dark:border-slate-700 space-y-3">
           <div class="relative">
             <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
@@ -144,7 +141,6 @@
           </button>
         </div>
 
-        <!-- メモ一覧 -->
         <div id="noteList" class="space-y-3"></div>
       </section>
 
@@ -237,12 +233,19 @@
       }
 
       initGoogleAuth(clientId) {
-        if (!window.google) return;
+        if (!window.google || !google.accounts || !google.accounts.oauth2) {
+          setTimeout(() => this.initGoogleAuth(clientId), 200);
+          return;
+        }
         this.tokenClient = google.accounts.oauth2.initTokenClient({
           client_id: clientId,
           scope: SCOPES,
           callback: async (resp) => {
-            if (resp.error) return;
+            if (resp.error) {
+              console.error('Auth Error:', resp);
+              this.updateStatus('offline', '認証エラー');
+              return;
+            }
             this.accessToken = resp.access_token;
             this.updateStatus('syncing', '同期中...');
             this.dom.authBtn.querySelector('span').textContent = '切断';
@@ -265,10 +268,12 @@
         });
 
         this.dom.authBtn.addEventListener('click', () => {
-          if (!localStorage.getItem('google_client_id')) {
+          const clientId = localStorage.getItem('google_client_id');
+          if (!clientId) {
             alert('先にGoogleクライアントIDを設定してください。');
             return;
           }
+
           if (this.accessToken) {
             this.accessToken = null;
             this.updateStatus('offline', '未接続');
@@ -276,7 +281,15 @@
             this.notes = [];
             this.render();
           } else {
-            this.tokenClient.requestAccessToken({ prompt: 'consent' });
+            if (!this.tokenClient) {
+              this.initGoogleAuth(clientId);
+            }
+            // スマホのポップアップブロックを回避するためタップ直後に実行
+            if (this.tokenClient) {
+              this.tokenClient.requestAccessToken({ prompt: '' });
+            } else {
+              alert('Google認証ライブラリを読み込み中です。少し待って再試行してください。');
+            }
           }
         });
 
@@ -318,13 +331,11 @@
         }
       }
 
-      // Drive API操作: ファイル検索・読み込み・保存
       async syncWithDrive() {
         try {
           if (!this.accessToken) return;
 
           if (!this.fileId) {
-            // ファイルを検索
             const q = encodeURIComponent(`name = '${FILE_NAME}' and trashed = false`);
             const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
               method: 'GET',
@@ -341,13 +352,11 @@
           }
 
           if (this.fileId) {
-            // 既存ファイルからデータ取得
             const res = await fetch(`https://www.googleapis.com/drive/v3/files/${this.fileId}?alt=media`, {
               headers: { Authorization: `Bearer ${this.accessToken}` }
             });
             this.notes = await res.json();
           } else {
-            // 新規作成
             await this.saveToDrive();
           }
           this.updateStatus('online', 'クラウド同期中');
@@ -365,14 +374,12 @@
 
         try {
           if (this.fileId) {
-            // 更新
             await fetch(`https://www.googleapis.com/upload/drive/v3/files/${this.fileId}?uploadType=media`, {
               method: 'PATCH',
               headers: { Authorization: `Bearer ${this.accessToken}`, 'Content-Type': 'application/json' },
               body: content
             });
           } else {
-            // 新規作成 (Multipart)
             const form = new FormData();
             form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
             form.append('file', new Blob([content], { type: 'application/json' }));
