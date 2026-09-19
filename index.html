@@ -8,7 +8,9 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Font Awesome -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <!-- Google Identity Services (async/deferを外し確実に読み込み) -->
+  <!-- html2pdf.js (PDF出力ライブラリ) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <!-- Google Identity Services -->
   <script src="https://accounts.google.com/gsi/client"></script>
   <script>
     tailwind.config = {
@@ -22,6 +24,22 @@
       }
     }
   </script>
+  <style>
+    /* カスタムスクロールバーのスタイリング */
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background-color: rgba(156, 163, 175, 0.4);
+      border-radius: 9999px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background-color: rgba(156, 163, 175, 0.7);
+    }
+  </style>
 </head>
 <body class="bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-100 min-h-screen flex flex-col font-sans transition-colors duration-200">
 
@@ -284,7 +302,6 @@
             if (!this.tokenClient) {
               this.initGoogleAuth(clientId);
             }
-            // スマホのポップアップブロックを回避するためタップ直後に実行
             if (this.tokenClient) {
               this.tokenClient.requestAccessToken({ prompt: '' });
             } else {
@@ -440,11 +457,44 @@
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
 
-      resetForm() {
-        this.dom.noteId.value = '';
-        this.dom.noteForm.reset();
-        this.dom.formTitle.innerHTML = `<i class="fa-solid fa-pen-to-square text-brand-500"></i> 新規メモ作成`;
-        this.dom.resetFormBtn.classList.add('hidden');
+      exportNoteToPDF(id) {
+        const note = this.notes.find(n => n.id === id);
+        if (!note) return;
+
+        // PDF用の綺麗に整形されたHTML要素を作成
+        const pdfContainer = document.createElement('div');
+        pdfContainer.className = 'p-8 bg-white text-slate-800 font-sans leading-relaxed';
+        pdfContainer.style.width = '700px';
+
+        let datesText = `作成日: ${note.createdAt}`;
+        if (note.updatedAt) datesText += ` | 最終更新日: ${note.updatedAt}`;
+
+        pdfContainer.innerHTML = `
+          <div style="border-bottom: 2px solid #0284c7; padding-bottom: 12px; margin-bottom: 20px;">
+            <h1 style="font-size: 22px; font-weight: bold; color: #0f172a; margin: 0 0 8px 0; word-break: break-all;">${this.escapeHtml(note.title)}</h1>
+            <p style="font-size: 11px; color: #64748b; margin: 0;">${datesText}</p>
+          </div>
+          <div style="font-size: 14px; color: #334155; white-space: pre-wrap; word-break: break-all; line-height: 1.7;">${this.escapeHtml(note.content)}</div>
+        `;
+
+        const opt = {
+          margin:       15,
+          filename:     `メモ_${note.title.substring(0, 15)}_${note.createdAt.split(' ')[0]}.pdf`,
+          image:        { type: 'jpeg', quality: 0.98 },
+          html2canvas:  { scale: 2, useCORS: true },
+          jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        html2pdf().set(opt).from(pdfContainer).save();
+      }
+
+      escapeHtml(str) {
+        return str
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
       }
 
       openDeleteModal(id) {
@@ -534,23 +584,36 @@
           const actions = document.createElement('div');
           actions.className = 'flex items-center gap-1 shrink-0';
 
+          // PDF出力ボタン
+          const pdfBtn = document.createElement('button');
+          pdfBtn.className = 'p-1.5 text-slate-400 hover:text-emerald-500 rounded transition';
+          pdfBtn.title = 'PDFで出力';
+          pdfBtn.innerHTML = '<i class="fa-solid fa-file-pdf"></i>';
+          pdfBtn.addEventListener('click', () => this.exportNoteToPDF(note.id));
+
+          // 編集ボタン
           const editBtn = document.createElement('button');
           editBtn.className = 'p-1.5 text-slate-400 hover:text-brand-500 rounded transition';
+          editBtn.title = '編集';
           editBtn.innerHTML = '<i class="fa-solid fa-pen"></i>';
           editBtn.addEventListener('click', () => this.editNote(note.id));
 
+          // 削除ボタン
           const deleteBtn = document.createElement('button');
           deleteBtn.className = 'p-1.5 text-slate-400 hover:text-red-500 rounded transition';
+          deleteBtn.title = '削除';
           deleteBtn.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
           deleteBtn.addEventListener('click', () => this.openDeleteModal(note.id));
 
+          actions.appendChild(pdfBtn);
           actions.appendChild(editBtn);
           actions.appendChild(deleteBtn);
           header.appendChild(title);
           header.appendChild(actions);
 
+          // 本文エリア（縦スクロール指定: max-h-60 overflow-y-auto custom-scrollbar）
           const content = document.createElement('p');
-          content.className = 'text-sm text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-all line-clamp-6';
+          content.className = 'text-sm text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-all max-h-60 overflow-y-auto custom-scrollbar pr-1';
           content.textContent = note.content;
 
           const footer = document.createElement('div');
