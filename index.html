@@ -334,6 +334,14 @@
         });
       }
 
+      resetForm() {
+        this.dom.noteId.value = '';
+        this.dom.titleInput.value = '';
+        this.dom.contentInput.value = '';
+        this.dom.formTitle.innerHTML = `<i class="fa-solid fa-pen-to-square text-brand-500"></i> 新規メモ作成`;
+        this.dom.resetFormBtn.classList.add('hidden');
+      }
+
       updateStatus(state, text) {
         const el = this.dom.syncStatus;
         if (state === 'online') {
@@ -611,7 +619,7 @@
           header.appendChild(title);
           header.appendChild(actions);
 
-          // 本文エリア（縦スクロール指定: max-h-60 overflow-y-auto custom-scrollbar）
+          // 本文エリア（縦スクロール指定を追加）
           const content = document.createElement('p');
           content.className = 'text-sm text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-all max-h-60 overflow-y-auto custom-scrollbar pr-1';
           content.textContent = note.content;
